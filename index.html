@@ -3,10 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Base href per compatibilità sandbox -->
     <base href="https://localhost/">
     <title>Widget Assistente RAG Enterprise</title>
-    <!-- Google Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -381,7 +379,6 @@
 </head>
 <body>
 
-    <!-- DEMO INTERFACE -->
     <div class="demo-container">
         <h1>Assistente AI Aziendale (RAG Locale)</h1>
         <p class="subtitle">
@@ -427,10 +424,8 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
         </button>
     </div>
 
-    <!-- WIDGET CONTAINER -->
     <div id="ea-widget-container">
         
-        <!-- Chat Panel -->
         <div id="ea-panel">
             <div class="ea-header">
                 <div class="ea-header-icon">
@@ -445,7 +440,6 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
                 </div>
             </div>
 
-            <!-- Area Caricamento Modelli (Visibile durante init e update) -->
             <div id="ea-status-bar" style="display: none;">
                 <div id="ea-status-text" style="display: flex; align-items: center; gap: 8px;">
                     <span class="material-symbols-outlined" style="font-size: 16px; animation: spin 2s linear infinite;">sync</span>
@@ -478,7 +472,6 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
             </div>
         </div>
 
-        <!-- FAB Button -->
         <button id="ea-fab" aria-label="Apri/Chiudi chat">
             <span class="material-symbols-outlined icon-open">chat</span>
             <span class="material-symbols-outlined icon-close">close</span>
@@ -486,12 +479,10 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
 
     </div>
 
-    <!-- STILI AGGIUNTIVI PER ANIMAZIONI -->
     <style>
         @keyframes spin { 100% { -webkit-transform: rotate(360deg); transform:rotate(360deg); } }
     </style>
 
-    <!-- MAIN SCRIPT (RAG + WebLLM Logic) -->
     <script type="module">
         import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.1.0/dist/transformers.min.js';
         
@@ -548,35 +539,32 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
         // Funzione di pulizia e suddivisione avanzata (Sliding Window con overlap garantito)
         function createEnterpriseChunks(text) {
             // 1. Preprocessing: Normalizzazione del testo
-            // Rimuove caratteri strani, unifica gli spazi, gestisce i ritorni a capo multipli
             const cleanedText = text
                 .replace(/\r\n/g, '\n') // Unifica newline
                 .replace(/\t/g, ' ')    // Tab in spazi
                 .replace(/ {2,}/g, ' ') // Multi-spazi in spazio singolo
                 .trim();
 
-            // 2. Suddivisione in righe logiche (ignorando righe vuote o troppo brevi)
+            // 2. Suddivisione in righe logiche
             const lines = cleanedText.split('\n')
                 .map(l => l.trim())
                 .filter(l => l.length > 15); // Filtra righe spazzatura
 
             const chunks = [];
-            const WINDOW_SIZE = 3; // Numero di righe per chunk
-            const STEP_SIZE = 1;   // Avanzamento (1 = massimo overlap)
+            // RIDOTTO A 2 per isolare meglio i concetti specifici per i modelli piccoli
+            const WINDOW_SIZE = 2; 
+            const STEP_SIZE = 1;   
 
             // 3. Creazione Sliding Window
             if (lines.length <= WINDOW_SIZE) {
-                 // Se il testo è breve, lo prendiamo tutto in un blocco
                 chunks.push(lines.join('\n'));
             } else {
                 for (let i = 0; i <= lines.length - WINDOW_SIZE; i += STEP_SIZE) {
-                    // Crea un blocco unendo le righe dalla i alla i + WINDOW_SIZE
                     let chunk = lines.slice(i, i + WINDOW_SIZE).join('\n');
                     chunks.push(chunk);
                 }
             }
             
-            // Rimuove eventuali duplicati e ritorna
             return [...new Set(chunks)];
         }
 
@@ -610,55 +598,44 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
             ui.btnInitSystem.disabled = true;
             ui.btnInitSystem.innerHTML = '<span class="material-symbols-outlined" style="animation: spin 2s linear infinite;">sync</span> Elaborazione in corso...';
             
-            // Mostra la barra di caricamento (anche per gli aggiornamenti)
             ui.statusBar.style.display = 'flex';
             updateStatus("Avvio procedura di indicizzazione...", 5);
             
-            // Pulizia messaggi precedenti (mantiene solo l'ultimo se esiste, per continuità)
             const messages = ui.chatArea.querySelectorAll('.ea-message');
             if (messages.length > 0 && ui.welcomeMsg.style.display === 'none') {
-                 // Opzionale: tenere lo storico. Per ora puliamo per chiarezza.
                  ui.chatArea.innerHTML = '';
             }
             if (ui.welcomeMsg) ui.welcomeMsg.style.display = 'none';
 
             try {
-                // FASE 1: Caricamento/Verifica Modello Embedding (Singleton)
+                // FASE 1: Caricamento/Verifica Modello Embedding
                 if (!embedderPipeline) {
                     updateStatus("Caricamento modello di ricerca semantica (Multilingua)...", 15);
-                    // Modello a 12 layer ottimizzato per la parafrasi multilingua
                     embedderPipeline = await pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2');
                 }
                 
-                // FASE 2: RAG Ingestion Pipeline (Chunking + Embedding)
+                // FASE 2: RAG Ingestion Pipeline
                 updateStatus("Analisi e segmentazione del testo aziendale...", 35);
-                // Uso della nuova funzione di chunking enterprise
                 documentChunks = createEnterpriseChunks(knowledgeText);
                 
                 updateStatus(`Vettorializzazione di ${documentChunks.length} frammenti di conoscenza...`, 50);
                 chunkEmbeddings = [];
-                // Processamento batch (potrebbe bloccare la UI su PC lenti, ma è necessario)
                 for (let i = 0; i < documentChunks.length; i++) {
-                     // Normalizzazione L2 è cruciale per la cosine similarity
                     const output = await embedderPipeline(documentChunks[i], { pooling: 'mean', normalize: true });
                     chunkEmbeddings.push(output.tolist()[0]);
-                    // Aggiorna progresso fine
                     updateStatus(`Vettorializzazione... (${Math.round(((i+1)/documentChunks.length)*20 + 50)}%)`, 50 + Math.round(((i+1)/documentChunks.length)*20));
                 }
 
-                // FASE 3: Caricamento/Verifica LLM Generativo (Singleton)
+                // FASE 3: Caricamento/Verifica LLM Generativo
                 if (!llmEngine) {
                     updateStatus("Caricamento LLM Neurale (Llama 3.2 1B Instruct)...", 75);
-                    // Callback per il download progressivo del modello grosso
                     const initProgressCallback = (report) => {
                         const pct = 75 + Math.round(report.progress * 25);
                         updateStatus(report.text.replace('Loading model from cache', 'Caricamento da cache').replace('Fetching', 'Scaricamento'), pct);
                     };
                     
-                    // Configurazione avanzata engine
                     llmEngine = await webllm.CreateMLCEngine("Llama-3.2-1B-Instruct-q4f16_1-MLC", { 
                         initProgressCallback,
-                        // Parametri di generazione conservativi per ridurre allucinazioni
                         temperature: 0.1, 
                         top_p: 0.9
                     });
@@ -680,7 +657,7 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
                     if (!ui.panel.classList.contains('open')) {
                         ui.fab.click();
                     }
-                }, 800); // Piccolo delay per far vedere il 100%
+                }, 800);
 
             } catch (error) {
                 console.error("Init Error:", error);
@@ -722,36 +699,32 @@ Organizziamo inoltre feste di compleanno e cene aziendali nella nostra sala priv
                     score: cosineSimilarity(queryVector, chunkEmbeddings[index])
                 }));
 
-                // 3. Selection: Top-K Retrieval (Aumentato a 5 per Llama 3.2)
+                // 3. Selection: Top-K Retrieval
                 scores.sort((a, b) => b.score - a.score);
                 const topK = scores.slice(0, 5);
-                // Filtro di qualità minimo (opzionale, per ora disabilitato per massimizzare recall)
-                // .filter(k => k.score > 0.25); 
 
-                // Formattazione contesto con delimitatori XML-style per chiarezza dell'LLM
-                const contextStr = topK.map((k, idx) => `<chunk id="${idx+1}">${k.chunk}</chunk>`).join("\n");
+                // 4. Formattazione contesto semplice per modelli piccoli (Nessun tag XML)
+                const contextStr = topK.map(k => `- ${k.chunk}`).join("\n\n");
 
-                // 4. Prompt Engineering "Enterprise" (Strutturato e restrittivo)
-                const systemPrompt = `Sei un assistente AI aziendale. Il tuo compito è rispondere alle domande basandoti ESCLUSIVAMENTE sui documenti forniti.
+                // 5. Prompt Engineering Semplificato e Diretto
+                const systemPrompt = `Sei l'assistente AI della pizzeria. Il tuo compito è rispondere alle domande degli utenti basandoti ESCLUSIVAMENTE sul seguente Contesto Aziendale.
 
-<instructions>
-1. Leggi attentamente il <context> fornito sotto.
-2. Se la risposta alla domanda dell'utente è presente nel contesto, forniscila in modo chiaro, cortese e conciso in italiano.
-3. Se l'informazione NON è presente nel contesto, devi rispondere ESATTAMENTE con: "Mi dispiace, ma questa informazione non è disponibile nei documenti aziendali forniti."
-4. NON inventare informazioni. NON usare conoscenze esterne.
-5. Non citare "il contesto" o "i documenti" nella risposta, rispondi direttamente.
-</instructions>
-
-<context>
+CONTESTO AZIENDALE:
 ${contextStr}
-</context>`;
+
+REGOLE IMPORTANTI:
+- Rispondi in italiano in modo chiaro, cortese e conciso.
+- Se il cliente chiede di un servizio o prodotto che non avete o non fate (come Glovo o Deliveroo), spiegagli che non lo usate o non l'avete, basandoti sulle informazioni del Contesto Aziendale.
+- Se l'informazione richiesta non si trova per niente nel Contesto Aziendale, devi rispondere ESATTAMENTE con: "Mi dispiace, ma questa informazione non è disponibile nei documenti aziendali."
+- NON inventare informazioni. NON usare conoscenze esterne.
+- Non usare frasi come "in base al contesto" o "nei documenti forniti", rispondi in modo naturale.`;
 
                 const messages = [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: query }
                 ];
 
-                // 5. Generazione (Streaming)
+                // 6. Generazione (Streaming)
                 let replyText = "";
                 const chunks = await llmEngine.chat.completions.create({ messages, stream: true });
                 
@@ -768,14 +741,11 @@ ${contextStr}
                     ui.chatArea.scrollTo({ top: ui.chatArea.scrollHeight, behavior: 'smooth' });
                 }
 
-                // 6. Source Attribution (Trasparenza)
-                // Mostra la fonte solo se la confidenza del primo risultato è decente (>35%)
+                // 7. Source Attribution (Trasparenza)
                 if (topK.length > 0 && topK[0].score > 0.35) {
                     const sourceHint = document.createElement('div');
                     sourceHint.className = 'ea-source-cite';
-                    // Mostra un'anteprima della fonte nel tooltip
                     sourceHint.title = "Frammento utilizzato:\n" + topK[0].chunk.substring(0, 150) + "...";
-                    // Calcolo percentuale di match semantico
                     const confidence = Math.round(topK[0].score * 100);
                     sourceHint.innerHTML = `Fonte verificata (Match semantico: ${confidence}%)`;
                     aiBubble.appendChild(sourceHint);
@@ -784,7 +754,7 @@ ${contextStr}
 
             } catch (err) {
                 console.error("Query Error:", err);
-                aiBubble.innerHTML = `Use a better model`;
+                aiBubble.innerHTML = `⚠️ Si è verificato un errore durante la generazione della risposta. Riprova.`;
             } finally {
                 isProcessing = false;
                 updateSendButtonState();
